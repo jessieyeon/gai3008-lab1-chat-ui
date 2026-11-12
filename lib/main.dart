@@ -106,9 +106,15 @@ class _ChatPageState extends State<ChatPage> {
   /// 답변 전에 점 3개를 보여 주는 시간.
   static const Duration _typingDelay = Duration(seconds: 5);
 
+  /// 이번 실습에서는 세 번째 입력을 429(요청 과다) 오류로 처리한다.
+  static const int _rateLimitAtInput = 3;
+
   /// 화면 상태는 이 값 하나로 관리한다. (idle → loading → success/error)
   ChatState _state = const ChatIdle();
   Timer? _typingTimer;
+
+  /// "다시 시도"일 때는 3번째 입력 429 시뮬레이션을 한 번 건너뛴다.
+  bool _skipRateLimitOnce = false;
 
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -135,11 +141,44 @@ class _ChatPageState extends State<ChatPage> {
     _controller.clear();
     _scrollToBottom();
 
+    _startReplyTimer();
+  }
+
+  /// 오류 말풍선의 "다시 시도" — 마지막 요청을 한 번 더 보낸다.
+  void _retry() {
+    if (_state is! ChatError) return;
+
+    setState(() {
+      // 재시도에서는 같은 429 오류가 반복되지 않게 한 번 건너뛴다.
+      _skipRateLimitOnce = true;
+      _state = const ChatLoading();
+    });
+
+    _scrollToBottom();
+    _startReplyTimer();
+  }
+
+  /// 5초 뒤 응답(또는 오류)을 만드는 공통 타이머.
+  void _startReplyTimer() {
     _typingTimer?.cancel();
     _typingTimer = Timer(_typingDelay, () {
       if (!mounted) return;
 
       setState(() {
+        // 세 번째 입력은 성공 대신 429 오류로 끝낸다.
+        final userInputCount = _messages
+            .where((message) => message.isUser)
+            .length;
+        final shouldRateLimit =
+            userInputCount == _rateLimitAtInput && !_skipRateLimitOnce;
+        // 재시도 예외는 이번 요청에만 적용한다.
+        _skipRateLimitOnce = false;
+
+        if (shouldRateLimit) {
+          _state = const ChatError(type: ChatErrorType.tooManyRequests);
+          return;
+        }
+
         // 준비된 답변을 순서대로 붙인다.
         final reply = _preparedReplies[_replyIndex % _preparedReplies.length];
         _messages.add(ChatMessage(text: reply, isUser: false));
@@ -208,7 +247,7 @@ class _ChatPageState extends State<ChatPage> {
                         return const _TypingBubble();
                       }
                       if (error != null && index == 0) {
-                        return _ErrorBubble(error: error);
+                        return _ErrorBubble(error: error, onRetry: _retry);
                       }
 
                       final messageIndex =
@@ -352,9 +391,10 @@ class _Bubble extends StatelessWidget {
 /// · 오류 종류별 문구는 ChatErrorType.message에서 가져온다.
 /// ───────────────────────────────────────────────────────────────
 class _ErrorBubble extends StatelessWidget {
-  const _ErrorBubble({required this.error});
+  const _ErrorBubble({required this.error, required this.onRetry});
 
   final ChatError error;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -376,19 +416,43 @@ class _ErrorBubble extends StatelessWidget {
             bottomRight: Radius.circular(14),
           ),
         ),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 18,
-              color: colorScheme.onErrorContainer,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 18,
+                  color: colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    error.message,
+                    style: TextStyle(color: colorScheme.onErrorContainer),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                error.message,
-                style: TextStyle(color: colorScheme.onErrorContainer),
+            const SizedBox(height: 8),
+            // 오류가 난 요청을 다시 보낼 수 있는 버튼.
+            FilledButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('다시 시도'),
+              style: FilledButton.styleFrom(
+                backgroundColor: colorScheme.error,
+                foregroundColor: colorScheme.onError,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                textStyle: const TextStyle(fontSize: 13),
               ),
             ),
           ],

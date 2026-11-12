@@ -87,4 +87,45 @@ void main() {
     final field = tester.widget<TextField>(find.byType(TextField));
     expect(field.controller?.text, isEmpty);
   });
+
+  testWidgets('세 번째 입력은 429 오류를 보여 준다', (WidgetTester tester) async {
+    await tester.pumpWidget(const ChatLabApp());
+
+    Future<void> send(String text) async {
+      await tester.enterText(find.byType(TextField), text);
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pumpAndSettle();
+    }
+
+    await send('첫 번째 질문');
+    await send('두 번째 질문');
+
+    // 세 번째 전송 → 점 3개를 보여 준 뒤 429 오류
+    await tester.enterText(find.byType(TextField), '세 번째 질문');
+    await tester.tap(find.byIcon(Icons.send_rounded));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('typingDots')), findsNothing);
+    expect(find.byKey(const ValueKey('errorBubble')), findsOneWidget);
+    expect(find.text('잠시 후 다시 시도해 주세요'), findsOneWidget);
+
+    // 오류 말풍선 안의 "다시 시도"를 누르면 로딩 후 정상 답변이 온다.
+    final retryButton = find.widgetWithText(FilledButton, '다시 시도');
+    expect(retryButton, findsOneWidget);
+
+    await tester.tap(retryButton);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('errorBubble')), findsNothing);
+    expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('errorBubble')), findsNothing);
+    expect(find.textContaining('보내기, 기다리기'), findsWidgets);
+  });
 }
