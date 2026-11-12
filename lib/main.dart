@@ -241,6 +241,7 @@ class _ChatPageState extends State<ChatPage> {
 /// ✅ 할 일 2 — 완료된 부분
 ///    말풍선 2종 (사용자 오른쪽 / AI 왼쪽)
 ///    · Align으로 좌우를 나누고, 색은 colorScheme에서 꺼내 다크 모드에도 대응한다.
+///    · 사용자/AI 모두 파란색(primaryContainer)으로 표시한다.
 ///    · maxWidth를 잡아 긴 글은 자동으로 줄바꿈된다.
 ///    · 말풍선 꼬리 쪽 모서리만 덜 둥글게 해 방향을 표현한다.
 /// ───────────────────────────────────────────────────────────────
@@ -261,9 +262,8 @@ class _Bubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         constraints: const BoxConstraints(maxWidth: 420),
         decoration: BoxDecoration(
-          color: isUser
-              ? colorScheme.primaryContainer
-              : colorScheme.surfaceContainerHighest,
+          // 사용자/AI 모두 같은 파란 계열을 쓴다.
+          color: colorScheme.primaryContainer,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(14),
             topRight: const Radius.circular(14),
@@ -273,11 +273,7 @@ class _Bubble extends StatelessWidget {
         ),
         child: Text(
           message.text,
-          style: TextStyle(
-            color: isUser
-                ? colorScheme.onPrimaryContainer
-                : colorScheme.onSurface,
-          ),
+          style: TextStyle(color: colorScheme.onPrimaryContainer),
         ),
       ),
     );
@@ -319,7 +315,8 @@ class _TypingBubbleState extends State<_TypingBubble>
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest,
+          // 답변 말풍선과 같은 파란 계열.
+          color: colorScheme.primaryContainer,
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(14),
             topRight: Radius.circular(14),
@@ -335,7 +332,7 @@ class _TypingBubbleState extends State<_TypingBubble>
               children: [
                 for (var i = 0; i < 3; i++) ...[
                   if (i > 0) const SizedBox(width: 5),
-                  _buildDot(i, colorScheme.onSurfaceVariant),
+                  _buildDot(i, colorScheme.onPrimaryContainer),
                 ],
               ],
             );
