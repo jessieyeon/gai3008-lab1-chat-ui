@@ -30,6 +30,59 @@ class ChatMessage {
   final bool isUser;
 }
 
+/// 오류 종류 — 401/429/500과 타임아웃을 한 곳에서 구분한다.
+enum ChatErrorType {
+  unauthorized(401, '키/권한을 확인해 주세요'),
+  tooManyRequests(429, '잠시 후 다시 시도해 주세요'),
+  serverError(500, '응답을 받지 못했습니다'),
+  timeout(null, '네트워크를 확인해주세요');
+
+  const ChatErrorType(this.statusCode, this.message);
+
+  final int? statusCode;
+  final String message;
+
+  /// HTTP 상태 코드를 오류 타입으로 변환한다. 모르는 코드는 null.
+  static ChatErrorType? fromStatusCode(int statusCode) => switch (statusCode) {
+    401 => ChatErrorType.unauthorized,
+    429 => ChatErrorType.tooManyRequests,
+    500 => ChatErrorType.serverError,
+    _ => null,
+  };
+}
+
+/// 화면 상태 — idle / loading / success / error를 하나의 값으로 관리한다.
+/// sealed class라서 switch로 모든 상태를 빠짐없이 처리할 수 있다.
+sealed class ChatState {
+  const ChatState();
+}
+
+/// 아직 요청을 보내지 않은 상태.
+final class ChatIdle extends ChatState {
+  const ChatIdle();
+}
+
+/// 응답을 기다리는 상태.
+final class ChatLoading extends ChatState {
+  const ChatLoading();
+}
+
+/// 응답이 도착한 상태.
+final class ChatSuccess extends ChatState {
+  const ChatSuccess({required this.reply});
+
+  final String reply;
+}
+
+/// 요청이 실패한 상태.
+final class ChatError extends ChatState {
+  const ChatError({required this.type});
+
+  final ChatErrorType type;
+
+  String get message => type.message;
+}
+
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key});
 
@@ -53,7 +106,8 @@ class _ChatPageState extends State<ChatPage> {
   /// 답변 전에 점 3개를 보여 주는 시간.
   static const Duration _typingDelay = Duration(seconds: 5);
 
-  bool _isTyping = false;
+  /// 화면 상태는 이 값 하나로 관리한다. (idle → loading → success/error)
+  ChatState _state = const ChatIdle();
   Timer? _typingTimer;
 
   final TextEditingController _controller = TextEditingController();
@@ -70,11 +124,12 @@ class _ChatPageState extends State<ChatPage> {
   /// 입력창의 글자를 목록에 추가하고, 5초 뒤에 준비된 AI 답변을 붙인다.
   void _send() {
     final text = _controller.text.trim();
-    if (text.isEmpty || _isTyping) return;
+    // 대기 중인지는 통합 상태로 판단한다.
+    if (text.isEmpty || _state is ChatLoading) return;
 
     setState(() {
       _messages.add(ChatMessage(text: text, isUser: true));
-      _isTyping = true;
+      _state = const ChatLoading();
     });
 
     _controller.clear();
@@ -85,12 +140,13 @@ class _ChatPageState extends State<ChatPage> {
       if (!mounted) return;
 
       setState(() {
-        _isTyping = false;
-
         // 준비된 답변을 순서대로 붙인다.
         final reply = _preparedReplies[_replyIndex % _preparedReplies.length];
         _messages.add(ChatMessage(text: reply, isUser: false));
         _replyIndex++;
+
+        // 응답 도착도 같은 상태 변수로 표현한다.
+        _state = ChatSuccess(reply: reply);
       });
 
       _scrollToBottom();
@@ -110,6 +166,11 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 로딩/오류 여부도 통합 상태에서 파생한다.
+    final state = _state;
+    final isLoading = state is ChatLoading;
+    final error = state is ChatError ? state : null;
+
     return Scaffold(
       // TODO 5 — 키보드가 입력창을 가리지 않게
       // TIP: Scaffold의 resizeToAvoidBottomInset은 기본값이 true다.
@@ -138,17 +199,22 @@ class _ChatPageState extends State<ChatPage> {
                     controller: _scrollController,
                     reverse: true,
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    // 답변을 기다리는 동안 맨 아래에 점 3개를 하나 더 그린다.
-                    itemCount: _messages.length + (_isTyping ? 1 : 0),
+                    // 로딩 중에는 점 3개를, 실패하면 오류 말풍선을 맨 아래에 그린다.
+                    itemCount:
+                        _messages.length +
+                        ((isLoading || error != null) ? 1 : 0),
                     itemBuilder: (context, index) {
-                      if (_isTyping && index == 0) {
+                      if (isLoading && index == 0) {
                         return const _TypingBubble();
+                      }
+                      if (error != null && index == 0) {
+                        return _ErrorBubble(error: error);
                       }
 
                       final messageIndex =
                           _messages.length -
                           1 -
-                          (_isTyping ? index - 1 : index);
+                          ((isLoading || error != null) ? index - 1 : index);
                       final message = _messages[messageIndex];
                       return _Bubble(message: message);
                     },
@@ -223,7 +289,8 @@ class _ChatPageState extends State<ChatPage> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: _isTyping ? null : _send,
+                    // 로딩 중에는 중복 전송을 막는다.
+                    onPressed: isLoading ? null : _send,
                     tooltip: '전송',
                     icon: const Icon(Icons.send_rounded),
                   ),
@@ -274,6 +341,57 @@ class _Bubble extends StatelessWidget {
         child: Text(
           message.text,
           style: TextStyle(color: colorScheme.onPrimaryContainer),
+        ),
+      ),
+    );
+  }
+}
+
+/// ───────────────────────────────────────────────────────────────
+/// 오류 말풍선 — 실패한 요청의 원인을 왼쪽에 표시한다.
+/// · 오류 종류별 문구는 ChatErrorType.message에서 가져온다.
+/// ───────────────────────────────────────────────────────────────
+class _ErrorBubble extends StatelessWidget {
+  const _ErrorBubble({required this.error});
+
+  final ChatError error;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const ValueKey('errorBubble'),
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        constraints: const BoxConstraints(maxWidth: 420),
+        decoration: BoxDecoration(
+          color: colorScheme.errorContainer,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(14),
+            topRight: Radius.circular(14),
+            bottomLeft: Radius.circular(4),
+            bottomRight: Radius.circular(14),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 18,
+              color: colorScheme.onErrorContainer,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                error.message,
+                style: TextStyle(color: colorScheme.onErrorContainer),
+              ),
+            ),
+          ],
         ),
       ),
     );

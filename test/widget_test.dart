@@ -4,6 +4,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lab1_chat_ui/main.dart';
 
 void main() {
+  // 새로 추가한 오류 타입이 상태 코드와 올바르게 연결되는지 확인한다.
+  test('ChatErrorType이 HTTP 상태 코드와 타임아웃을 구분한다', () {
+    expect(ChatErrorType.fromStatusCode(401), ChatErrorType.unauthorized);
+    expect(ChatErrorType.fromStatusCode(429), ChatErrorType.tooManyRequests);
+    expect(ChatErrorType.fromStatusCode(500), ChatErrorType.serverError);
+    expect(ChatErrorType.fromStatusCode(404), isNull);
+    expect(ChatErrorType.timeout.statusCode, isNull);
+
+    // 오류 종류별 안내 문구도 함께 확인한다.
+    expect(ChatErrorType.unauthorized.message, '키/권한을 확인해 주세요');
+    expect(ChatErrorType.tooManyRequests.message, '잠시 후 다시 시도해 주세요');
+    expect(ChatErrorType.serverError.message, '응답을 받지 못했습니다');
+    expect(ChatErrorType.timeout.message, '네트워크를 확인해주세요');
+  });
+
   testWidgets('앱이 뜨고 빈 상태가 보인다', (WidgetTester tester) async {
     await tester.pumpWidget(const ChatLabApp());
 
