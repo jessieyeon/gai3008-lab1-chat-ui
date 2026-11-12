@@ -40,10 +40,16 @@ flutter run -d chrome      # 또는 -d <에뮬레이터>
 
 ## 구조
 
-````
+```
 lib/main.dart          ← 실습 파일 (TODO 2~5)
 test/widget_test.dart  ← 앱이 뜨는지 확인하는 스모크 테스트
 ```
+
+## 스크린샷
+
+| 로딩 (타이핑 점) | 오류 말풍선 + 다시 시도 |
+| --- | --- |
+| <img src="screenshots/loading.png" width="280" alt="응답을 기다리는 동안 점 3개가 보이는 로딩 화면"> | <img src="screenshots/error.png" width="280" alt="오류 말풍선과 다시 시도 버튼이 보이는 화면"> |
 
 ## 제출
 
@@ -54,4 +60,3 @@ test/widget_test.dart  ← 앱이 뜨는지 확인하는 스모크 테스트
 ---
 
 ⓒ 2026 Baryon Labs · 연세대학교 GAI3008-01 응용모바일프로그래밍 교육자료
-````
