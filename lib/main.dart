@@ -116,6 +116,9 @@ class _ChatPageState extends State<ChatPage> {
   /// "다시 시도"일 때는 3번째 입력 429 시뮬레이션을 한 번 건너뛴다.
   bool _skipRateLimitOnce = false;
 
+  /// "다시 시도"에서 그대로 재사용할 마지막 사용자 메시지.
+  String? _lastUserMessage;
+
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -134,6 +137,8 @@ class _ChatPageState extends State<ChatPage> {
     if (text.isEmpty || _state is ChatLoading) return;
 
     setState(() {
+      // 재시도에 대비해 마지막 사용자 메시지를 저장한다.
+      _lastUserMessage = text;
       _messages.add(ChatMessage(text: text, isUser: true));
       _state = const ChatLoading();
     });
@@ -141,12 +146,13 @@ class _ChatPageState extends State<ChatPage> {
     _controller.clear();
     _scrollToBottom();
 
-    _startReplyTimer();
+    _startReplyTimer(text);
   }
 
-  /// 오류 말풍선의 "다시 시도" — 마지막 요청을 한 번 더 보낸다.
+  /// 오류 말풍선의 "다시 시도" — 저장해 둔 마지막 메시지를 그대로 재요청한다.
   void _retry() {
-    if (_state is! ChatError) return;
+    final lastMessage = _lastUserMessage;
+    if (_state is! ChatError || lastMessage == null) return;
 
     setState(() {
       // 재시도에서는 같은 429 오류가 반복되지 않게 한 번 건너뛴다.
@@ -155,11 +161,15 @@ class _ChatPageState extends State<ChatPage> {
     });
 
     _scrollToBottom();
-    _startReplyTimer();
+    // 사용자 말풍선은 다시 추가하지 않고, 저장된 메시지만 요청에 사용한다.
+    _startReplyTimer(lastMessage);
   }
 
   /// 5초 뒤 응답(또는 오류)을 만드는 공통 타이머.
-  void _startReplyTimer() {
+  void _startReplyTimer(String requestText) {
+    // 빈 요청은 보내지 않는다. (실제 API 연동 시 requestText가 요청 본문이 된다)
+    if (requestText.isEmpty) return;
+
     _typingTimer?.cancel();
     _typingTimer = Timer(_typingDelay, () {
       if (!mounted) return;

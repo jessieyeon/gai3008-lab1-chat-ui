@@ -112,6 +112,7 @@ void main() {
     expect(find.byKey(const ValueKey('typingDots')), findsNothing);
     expect(find.byKey(const ValueKey('errorBubble')), findsOneWidget);
     expect(find.text('잠시 후 다시 시도해 주세요'), findsOneWidget);
+    expect(find.text('세 번째 질문'), findsOneWidget);
 
     // 오류 말풍선 안의 "다시 시도"를 누르면 로딩 후 정상 답변이 온다.
     final retryButton = find.widgetWithText(FilledButton, '다시 시도');
@@ -127,5 +128,8 @@ void main() {
 
     expect(find.byKey(const ValueKey('errorBubble')), findsNothing);
     expect(find.textContaining('보내기, 기다리기'), findsWidgets);
+
+    // 재시도해도 사용자 말풍선은 중복으로 추가되지 않는다.
+    expect(find.text('세 번째 질문'), findsOneWidget);
   });
 }
