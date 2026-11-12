@@ -113,8 +113,17 @@ class _ChatPageState extends State<ChatPage> {
   ChatState _state = const ChatIdle();
   Timer? _typingTimer;
 
-  /// "다시 시도"일 때는 3번째 입력 429 시뮬레이션을 한 번 건너뛴다.
-  bool _skipRateLimitOnce = false;
+  /// 429일 때 자동 재시도 간격 — 1초 후 한 번, 또 429면 2초 후 한 번.
+  static const List<Duration> _autoRetryDelays = [
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+  ];
+
+  /// 지금까지 자동 재시도한 횟수.
+  int _autoRetryCount = 0;
+
+  /// 자동 재시도를 모두 소진했는지 — 이후 수동 "다시 시도"는 성공시킨다.
+  bool _rateLimitExhausted = false;
 
   /// "다시 시도"에서 그대로 재사용할 마지막 사용자 메시지.
   String? _lastUserMessage;
@@ -137,6 +146,9 @@ class _ChatPageState extends State<ChatPage> {
     if (text.isEmpty || _state is ChatLoading) return;
 
     setState(() {
+      // 새 요청이므로 자동 재시도 상태를 초기화한다.
+      _autoRetryCount = 0;
+      _rateLimitExhausted = false;
       // 재시도에 대비해 마지막 사용자 메시지를 저장한다.
       _lastUserMessage = text;
       _messages.add(ChatMessage(text: text, isUser: true));
@@ -155,8 +167,9 @@ class _ChatPageState extends State<ChatPage> {
     if (_state is! ChatError || lastMessage == null) return;
 
     setState(() {
-      // 재시도에서는 같은 429 오류가 반복되지 않게 한 번 건너뛴다.
-      _skipRateLimitOnce = true;
+      // 수동 재시도는 자동 재시도 횟수만 초기화한다.
+      // 429 시뮬레이션은 소진된 상태로 두어 이번 요청은 성공시킨다.
+      _autoRetryCount = 0;
       _state = const ChatLoading();
     });
 
@@ -173,33 +186,65 @@ class _ChatPageState extends State<ChatPage> {
     _typingTimer?.cancel();
     _typingTimer = Timer(_typingDelay, () {
       if (!mounted) return;
-
-      setState(() {
-        // 세 번째 입력은 성공 대신 429 오류로 끝낸다.
-        final userInputCount = _messages
-            .where((message) => message.isUser)
-            .length;
-        final shouldRateLimit =
-            userInputCount == _rateLimitAtInput && !_skipRateLimitOnce;
-        // 재시도 예외는 이번 요청에만 적용한다.
-        _skipRateLimitOnce = false;
-
-        if (shouldRateLimit) {
-          _state = const ChatError(type: ChatErrorType.tooManyRequests);
-          return;
-        }
-
-        // 준비된 답변을 순서대로 붙인다.
-        final reply = _preparedReplies[_replyIndex % _preparedReplies.length];
-        _messages.add(ChatMessage(text: reply, isUser: false));
-        _replyIndex++;
-
-        // 응답 도착도 같은 상태 변수로 표현한다.
-        _state = ChatSuccess(reply: reply);
-      });
-
-      _scrollToBottom();
+      _resolveRequest(requestText);
     });
+  }
+
+  /// 이번 실습에서 흉내 낼 오류. 세 번째 입력만 429가 된다.
+  ChatErrorType? _simulatedError() {
+    final userInputCount = _messages.where((message) => message.isUser).length;
+    if (userInputCount == _rateLimitAtInput && !_rateLimitExhausted) {
+      return ChatErrorType.tooManyRequests;
+    }
+    return null;
+  }
+
+  /// 응답을 판정한다. 429만 자동 재시도하고 나머지 오류는 즉시 끝낸다.
+  void _resolveRequest(String requestText) {
+    final errorType = _simulatedError();
+
+    if (errorType == ChatErrorType.tooManyRequests &&
+        _autoRetryCount < _autoRetryDelays.length) {
+      // 자동 재시도 중에는 로딩(타이핑 점)을 유지한 채 정해진 시간 뒤 다시 보낸다.
+      final delay = _autoRetryDelays[_autoRetryCount];
+      _autoRetryCount++;
+      _typingTimer?.cancel();
+      _typingTimer = Timer(delay, () {
+        if (!mounted) return;
+        _resolveRequest(requestText);
+      });
+      return;
+    }
+
+    if (errorType != null) {
+      // 429를 두 번 재시도하고도 실패했거나, 429가 아닌 오류인 경우.
+      if (errorType == ChatErrorType.tooManyRequests) {
+        _rateLimitExhausted = true;
+      }
+      setState(() {
+        _state = ChatError(type: errorType);
+      });
+      _scrollToBottom();
+      return;
+    }
+
+    _showSuccess();
+  }
+
+  /// 성공 상태로 전환하고 준비된 답변을 목록에 붙인다.
+  void _showSuccess() {
+    setState(() {
+      // 준비된 답변을 순서대로 붙인다.
+      final reply = _preparedReplies[_replyIndex % _preparedReplies.length];
+      _messages.add(ChatMessage(text: reply, isUser: false));
+      _replyIndex++;
+
+      // 다음 요청을 위해 자동 재시도 횟수를 되돌린다.
+      _autoRetryCount = 0;
+      _state = ChatSuccess(reply: reply);
+    });
+
+    _scrollToBottom();
   }
 
   void _scrollToBottom() {

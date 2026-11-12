@@ -105,13 +105,24 @@ void main() {
     await send('첫 번째 질문');
     await send('두 번째 질문');
 
-    // 세 번째 전송 → 점 3개를 보여 준 뒤 429 오류
+    // 세 번째 전송 → 점 3개를 보여 준 뒤 429
     await tester.enterText(find.byType(TextField), '세 번째 질문');
     await tester.tap(find.byIcon(Icons.send_rounded));
     await tester.pump();
     expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
 
+    // 5초 뒤 첫 429 → 타이핑 점을 유지한 채 1초 후 자동 재시도
     await tester.pump(const Duration(seconds: 5));
+    expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
+    expect(find.byKey(const ValueKey('errorBubble')), findsNothing);
+
+    // 1초 뒤 또 429 → 2초 후 한 번 더 자동 재시도
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
+    expect(find.byKey(const ValueKey('errorBubble')), findsNothing);
+
+    // 2초 뒤에도 429면 오류 상태로 전환
+    await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('typingDots')), findsNothing);
