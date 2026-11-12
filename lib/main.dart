@@ -220,6 +220,20 @@ class _ChatPageState extends State<ChatPage> {
     final isLoading = state is ChatLoading;
     final error = state is ChatError ? state : null;
 
+    // 성공 상태의 마지막 AI 답변은 하단 전환 슬롯에서 보여 주고,
+    // 일반 목록에서는 제외해 같은 말풍선이 두 번 그려지지 않게 한다.
+    final lastMessage = _messages.isNotEmpty ? _messages.last : null;
+    final pinnedReply =
+        state is ChatSuccess && lastMessage != null && !lastMessage.isUser
+        ? lastMessage
+        : null;
+    final visibleMessageCount =
+        _messages.length - (pinnedReply != null ? 1 : 0);
+    final hasStatusChild = isLoading || error != null || pinnedReply != null;
+    final userMessageCount = _messages
+        .where((message) => message.isUser)
+        .length;
+
     return Scaffold(
       // TODO 5 — 키보드가 입력창을 가리지 않게
       // TIP: Scaffold의 resizeToAvoidBottomInset은 기본값이 true다.
@@ -248,22 +262,45 @@ class _ChatPageState extends State<ChatPage> {
                     controller: _scrollController,
                     reverse: true,
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    // 로딩 중에는 점 3개를, 실패하면 오류 말풍선을 맨 아래에 그린다.
-                    itemCount:
-                        _messages.length +
-                        ((isLoading || error != null) ? 1 : 0),
+                    // 맨 아래 슬롯에서 타이핑 → 답변/오류로 페이드 전환한다.
+                    itemCount: visibleMessageCount + (hasStatusChild ? 1 : 0),
                     itemBuilder: (context, index) {
-                      if (isLoading && index == 0) {
-                        return const _TypingBubble();
-                      }
-                      if (error != null && index == 0) {
-                        return _ErrorBubble(error: error, onRetry: _retry);
+                      if (hasStatusChild && index == 0) {
+                        final Widget statusChild;
+                        if (isLoading) {
+                          statusChild = const _TypingBubble(
+                            key: ValueKey('typing'),
+                          );
+                        } else if (error != null) {
+                          statusChild = _ErrorBubble(
+                            key: const ValueKey('error'),
+                            error: error,
+                            onRetry: _retry,
+                          );
+                        } else {
+                          statusChild = _Bubble(
+                            key: const ValueKey('reply'),
+                            message: pinnedReply!,
+                          );
+                        }
+
+                        return AnimatedSwitcher(
+                          // 새 사용자 메시지가 오면 슬롯을 새로 시작해
+                          // 이전 답변이 목록과 겹쳐 보이지 않게 한다.
+                          key: ValueKey('turn-$userMessageCount'),
+                          duration: const Duration(milliseconds: 300),
+                          switchInCurve: Curves.easeOut,
+                          switchOutCurve: Curves.easeIn,
+                          transitionBuilder: (child, animation) =>
+                              FadeTransition(opacity: animation, child: child),
+                          child: statusChild,
+                        );
                       }
 
                       final messageIndex =
-                          _messages.length -
+                          visibleMessageCount -
                           1 -
-                          ((isLoading || error != null) ? index - 1 : index);
+                          (hasStatusChild ? index - 1 : index);
                       final message = _messages[messageIndex];
                       return _Bubble(message: message);
                     },
@@ -362,7 +399,7 @@ class _ChatPageState extends State<ChatPage> {
 ///    · 말풍선 꼬리 쪽 모서리만 덜 둥글게 해 방향을 표현한다.
 /// ───────────────────────────────────────────────────────────────
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.message});
+  const _Bubble({super.key, required this.message});
 
   final ChatMessage message;
 
@@ -401,7 +438,7 @@ class _Bubble extends StatelessWidget {
 /// · 오류 종류별 문구는 ChatErrorType.message에서 가져온다.
 /// ───────────────────────────────────────────────────────────────
 class _ErrorBubble extends StatelessWidget {
-  const _ErrorBubble({required this.error, required this.onRetry});
+  const _ErrorBubble({super.key, required this.error, required this.onRetry});
 
   final ChatError error;
   final VoidCallback onRetry;
@@ -477,7 +514,7 @@ class _ErrorBubble extends StatelessWidget {
 /// · AnimationController로 점마다 위상을 어긋나게 해 순서대로 깜빡이게 한다.
 /// ───────────────────────────────────────────────────────────────
 class _TypingBubble extends StatefulWidget {
-  const _TypingBubble();
+  const _TypingBubble({super.key});
 
   @override
   State<_TypingBubble> createState() => _TypingBubbleState();

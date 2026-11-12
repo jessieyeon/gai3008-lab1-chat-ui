@@ -50,9 +50,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 4900));
     expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
 
-    // 5초가 지나면 점이 사라지고 답변이 도착한다
+    // 5초가 지나면 페이드 전환이 시작되어 두 자식이 잠시 함께 보인다
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump();
+    expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
+    expect(find.textContaining('보내기, 기다리기'), findsOneWidget);
+
+    // 전환이 끝나면 점은 사라지고 답변만 남는다
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('typingDots')), findsNothing);
     expect(find.textContaining('보내기, 기다리기'), findsOneWidget);
   });
@@ -119,6 +124,12 @@ void main() {
     expect(retryButton, findsOneWidget);
 
     await tester.tap(retryButton);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
+    // 페이드 아웃이 끝날 때까지는 이전 오류 말풍선이 남아 있다.
+    expect(find.byKey(const ValueKey('errorBubble')), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
     expect(find.byKey(const ValueKey('errorBubble')), findsNothing);
     expect(find.byKey(const ValueKey('typingDots')), findsOneWidget);
